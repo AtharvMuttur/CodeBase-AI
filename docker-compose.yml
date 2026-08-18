@@ -1,0 +1,95 @@
+# =============================================================
+# CodeBase AI — local development stack
+# -------------------------------------------------------------
+# Three services:
+#   - db        PostgreSQL 16 with the pgvector extension
+#   - backend   FastAPI on port 8000
+#   - frontend  Vite dev server on port 5173
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up --build
+# =============================================================
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: codebase-ai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-codebase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codebase_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-codebase_ai}
+    volumes:
+      - codebase_pgdata:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codebase} -d ${POSTGRES_DB:-codebase_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - codebase_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: codebase-ai-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://codebase:codebase_dev_password@db:5432/codebase_ai}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-768}
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-cohere}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RERANKER_MODEL: ${RERANKER_MODEL:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      MAX_REPO_SIZE_MB: ${MAX_REPO_SIZE_MB:-200}
+      MAX_FILE_SIZE_KB: ${MAX_FILE_SIZE_KB:-512}
+      MAX_FILES_PER_REPO: ${MAX_FILES_PER_REPO:-20000}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - codebase_workspace:/app/workspace
+      - "D:/Atharv/ML Projects/CodeBase AI:/mnt/codebase-ai:ro"
+    networks:
+      - codebase_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+    container_name: codebase-ai-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8000}
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    networks:
+      - codebase_net
+
+volumes:
+  codebase_pgdata:
+  codebase_workspace:
+
+networks:
+  codebase_net:
+    driver: bridge
