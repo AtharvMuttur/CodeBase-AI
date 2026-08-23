@@ -7,6 +7,14 @@ import {
 } from "../lib/api";
 import { useToasts } from "./Toast";
 import { Modal } from "./Modal";
+import {
+  ChevronDownIcon,
+  GithubIcon,
+  FolderIcon,
+  TrashIcon,
+  SearchIcon,
+  HomeIcon,
+} from "./Icons";
 
 interface Props {
   repos: RepositorySummary[];
@@ -245,7 +253,7 @@ export function Sidebar({
         >
           <span>Clone from GitHub</span>
           <span className="sidebar__heading-toggle" aria-hidden="true">
-            ▾
+            <ChevronDownIcon size={14} />
           </span>
         </h2>
         {!githubCollapsed && (
@@ -284,7 +292,7 @@ export function Sidebar({
         >
           <span>Index a local folder</span>
           <span className="sidebar__heading-toggle" aria-hidden="true">
-            ▾
+            <ChevronDownIcon size={14} />
           </span>
         </h2>
         {!localCollapsed && (
@@ -334,6 +342,7 @@ export function Sidebar({
         </h2>
 
         <div className="sidebar__search-wrapper">
+          <SearchIcon size={15} />
           <input
             ref={searchRef}
             type="search"
@@ -369,7 +378,9 @@ export function Sidebar({
           >
             <div className="repo-card__body">
               <div className="repo-card__name">
-                <span className="repo-card__name-icon">⌂</span>
+                <span className="repo-card__name-icon">
+                  <HomeIcon size={14} />
+                </span>
                 <span className="repo-card__name-text">All repositories</span>
               </div>
               <div className="repo-card__meta">
@@ -449,7 +460,7 @@ function RepoCard({
   const pct =
     liveTotal > 0 ? Math.min(100, Math.round((liveFiles / liveTotal) * 100)) : 0;
 
-  const sourceIcon = repo.source === "github" ? "❰❱" : "▤";
+  const SourceIconCmp = repo.source === "github" ? GithubIcon : FolderIcon;
 
   return (
     <div
@@ -465,7 +476,7 @@ function RepoCard({
       >
         <div className="repo-card__name">
           <span className="repo-card__name-icon" aria-hidden="true">
-            {sourceIcon}
+            <SourceIconCmp size={14} />
           </span>
           <span className="repo-card__name-text">{repo.name}</span>
         </div>
@@ -516,7 +527,7 @@ function RepoCard({
         title={`Delete ${repo.name}`}
         aria-label={`Delete ${repo.name}`}
       >
-        ×
+        <TrashIcon size={15} />
       </button>
     </div>
   );

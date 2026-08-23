@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Chat } from "./components/Chat";
 import { ShortcutsModal } from "./components/ShortcutsModal";
 import { useTheme } from "./lib/useTheme";
+import { MenuIcon, MoonIcon, SunIcon, KeyboardIcon, SparklesIcon } from "./components/Icons";
 
 /**
  * Top-level layout. Owns the global state: which repository is selected,
@@ -110,8 +111,11 @@ export default function App() {
             aria-label="Toggle sidebar"
             onClick={() => setSidebarOpen((v) => !v)}
           >
-            ☰
+            <MenuIcon size={18} />
           </button>
+          <div className="topbar__logo" aria-hidden="true">
+            <SparklesIcon size={16} />
+          </div>
           <h1 className="topbar__title">
             CodeBase<span className="accent"> AI</span>
           </h1>
@@ -131,7 +135,7 @@ export default function App() {
             }
             onClick={toggleTheme}
           >
-            {theme === "dark" ? "☀" : "☾"}
+            {theme === "dark" ? <SunIcon size={18} /> : <MoonIcon size={18} />}
           </button>
           <button
             type="button"
@@ -140,7 +144,7 @@ export default function App() {
             title="Keyboard shortcuts (?)"
             onClick={() => setShortcutsOpen(true)}
           >
-            ?
+            <KeyboardIcon size={18} />
           </button>
         </div>
       </header>

@@ -3,6 +3,15 @@ import { api, ChunkCitation, RepositorySummary } from "../lib/api";
 import { renderMarkdown } from "../lib/markdown";
 import { highlightLine } from "../lib/highlight";
 import { useToasts } from "./Toast";
+import {
+  SendIcon,
+  StopIcon,
+  CopyIcon,
+  CheckIcon,
+  SparklesIcon,
+  FileCodeIcon,
+  ChevronDownIcon,
+} from "./Icons";
 
 interface ChatMessage {
   id: string;
@@ -27,12 +36,6 @@ const SUGGESTIONS = [
   "Summarize the architecture of this codebase.",
 ];
 
-/**
- * Chat panel. Holds the message history and the composer. The chat is
- * intentionally stateless on the server — every POST /api/query is
- * independent. The component manages local UI state: in-flight requests,
- * copy-to-clipboard, and Markdown rendering.
- */
 export function Chat({ repositoryId, repos }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -48,7 +51,6 @@ export function Chat({ repositoryId, repos }: Props) {
     return repos?.find((r) => r.id === repositoryId)?.name ?? null;
   }, [repos, repositoryId]);
 
-  // Reset the conversation when the user switches repositories.
   useEffect(() => {
     setMessages([]);
   }, [repositoryId]);
@@ -59,7 +61,6 @@ export function Chat({ repositoryId, repos }: Props) {
     }
   }, [messages, pending]);
 
-  // Auto-resize the composer textarea up to its max-height.
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
@@ -141,8 +142,6 @@ export function Chat({ repositoryId, repos }: Props) {
   };
 
   const onFormKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
-    // Ctrl/Cmd + K focuses the composer from anywhere (handled here so it's
-    // bound to the chat panel and doesn't conflict with the "/" shortcut).
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       composerRef.current?.focus();
@@ -154,6 +153,9 @@ export function Chat({ repositoryId, repos }: Props) {
       <div className="chat" ref={scrollRef}>
         {messages.length === 0 && !pending && (
           <div className="chat__welcome">
+            <div className="chat__welcome-icon">
+              <SparklesIcon size={26} />
+            </div>
             <h2 className="chat__welcome-title">
               {repositoryId === null
                 ? "Ask anything across your indexed code"
@@ -189,7 +191,10 @@ export function Chat({ repositoryId, repos }: Props) {
         {pending && (
           <div className="message">
             <div className="message__role">
-              <span className="message__role-tag">assistant</span>
+              <span className="message__role-tag">
+                <SparklesIcon size={13} />
+                assistant
+              </span>
             </div>
             <div className="message__body">
               <div className="typing" aria-label="Assistant is thinking">
@@ -229,7 +234,8 @@ export function Chat({ repositoryId, repos }: Props) {
               onClick={stop}
               aria-label="Stop generating"
             >
-              ◼ Stop
+              <StopIcon size={14} />
+              Stop
             </button>
           ) : (
             <button
@@ -238,7 +244,8 @@ export function Chat({ repositoryId, repos }: Props) {
               disabled={!input.trim()}
               aria-label="Send"
             >
-              Send ⏎
+              <SendIcon size={14} />
+              Send
             </button>
           )}
         </form>
@@ -262,6 +269,7 @@ function MessageView({
 }) {
   const isUser = message.role === "user";
   const isError = message.role === "error";
+  const [copied, setCopied] = useState(false);
   const body = useMemo(() => {
     if (isUser) return null;
     return renderMarkdown(message.content);
@@ -273,12 +281,26 @@ function MessageView({
       ? repos?.find((r) => r.id === message.repoId)?.name ?? null
       : null);
 
+  const handleCopy = () => {
+    void navigator.clipboard
+      .writeText(message.content)
+      .then(() => {
+        setCopied(true);
+        onCopy(message.content);
+        window.setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // clipboard blocked — silently fail
+      });
+  };
+
   return (
     <div
       className={`message ${isUser ? "message--user" : ""} ${isError ? "message--error" : ""}`}
     >
       <div className="message__role">
         <span className="message__role-tag">
+          {!isUser && !isError && <SparklesIcon size={13} />}
           {message.role}
           {repoLabel && !isError && (
             <span style={{ color: "var(--fg-dim)", marginLeft: 6 }}>
@@ -290,19 +312,22 @@ function MessageView({
           <div className="message__actions">
             <button
               type="button"
-              className="message__action"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(message.content)
-                  .then(() => onCopy(message.content))
-                  .catch(() => {
-                    // clipboard blocked — silently fail
-                  });
-              }}
+              className={`message__action ${copied ? "copied" : ""}`}
+              onClick={handleCopy}
               aria-label="Copy message"
               title="Copy message"
             >
-              Copy
+              {copied ? (
+                <>
+                  <CheckIcon size={12} />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <CopyIcon size={12} />
+                  Copy
+                </>
+              )}
             </button>
           </div>
         )}
@@ -344,12 +369,13 @@ function CitationView({
   citation: ChunkCitation;
   index: number;
 }) {
-  // Render the highlighted snippet with line numbers along the left edge.
+  const [expanded, setExpanded] = useState(true);
+
   const lines = useMemo(() => {
     const code = citation.content.split("\n");
     return code.map((line, i) => {
       const highlighted = highlightLine(
-        line.length === 0 ? " " : line,
+        line.length === 0 ? " " : line,
         citation.language,
       );
       return {
@@ -360,18 +386,32 @@ function CitationView({
   }, [citation.content, citation.language, citation.start_line]);
 
   return (
-    <div className="citation">
-      <header className="citation__header">
+    <div className={`citation ${expanded ? "citation--expanded" : "citation--collapsed"}`}>
+      <header
+        className="citation__header"
+        onClick={() => setExpanded((v) => !v)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
+        aria-expanded={expanded}
+      >
         <span className="citation__path" title={citation.file_path}>
-          <span style={{ color: "var(--fg-dim)", marginRight: 6 }}>
-            [{index}]
-          </span>
+          <FileCodeIcon size={13} />
+          <span style={{ color: "var(--fg-dim)" }}>[{index}]</span>
           {citation.file_path}:{citation.start_line}-{citation.end_line}
         </span>
         <span className="citation__meta">
           <span>{citation.language ?? "text"}</span>
           <span className="citation__score">
-            score {citation.score.toFixed(3)}
+            {citation.score.toFixed(3)}
+          </span>
+          <span className="citation__toggle">
+            <ChevronDownIcon size={14} />
           </span>
         </span>
       </header>
