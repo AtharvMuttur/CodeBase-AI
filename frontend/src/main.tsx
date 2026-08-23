@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { ToastProvider } from "./components/Toast";
 import { getInitialTheme } from "./lib/useTheme";
+// Self-hosted variable fonts — bundled by Vite so they work offline/air-gapped.
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 // Apply theme synchronously before first render so there's no flash of
