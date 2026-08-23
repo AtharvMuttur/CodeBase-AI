@@ -11,6 +11,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5173,
+    strictPort: true,
     proxy: {
       // During `vite dev`, forward /api requests to the backend so the
       // browser doesn't have to deal with CORS in development.
@@ -19,6 +20,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 5173,
+    strictPort: true,
   },
   define: {
     // Inject the configured API base so the runtime code reads it
