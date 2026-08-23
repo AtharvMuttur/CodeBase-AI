@@ -95,6 +95,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
+  // Honour AbortSignal — the caller may pass one via init.signal to cancel
+  // an in-flight request. The browser will surface that as a DOMException
+  // (AbortError) here; we let it propagate so callers can render "stopped".
+  if (init?.signal?.aborted) {
+    throw new DOMException("Request aborted", "AbortError");
+  }
   if (!res.ok) {
     // FastAPI returns {detail: ...} on errors; surface that string.
     let detail = `HTTP ${res.status}`;
@@ -130,19 +136,26 @@ export const api = {
   deleteRepository: (id: number) =>
     request<void>(`/repositories/${id}`, { method: "DELETE" }),
 
-  createRepositoryFromGithub: (url: string) =>
+  createRepositoryFromGithub: (url: string, signal?: AbortSignal) =>
     request<CreateRepositoryResponse>("/repositories", {
       method: "POST",
       body: JSON.stringify({ url }),
+      signal,
     }),
 
-  ingestRepository: (name: string, localPath: string) =>
+  ingestRepository: (name: string, localPath: string, signal?: AbortSignal) =>
     request<IngestResult>("/ingest", {
       method: "POST",
       body: JSON.stringify({ name, local_path: localPath }),
+      signal,
     }),
 
-  query: (question: string, repositoryId: number | null, topK = 5) =>
+  query: (
+    question: string,
+    repositoryId: number | null,
+    topK = 5,
+    signal?: AbortSignal,
+  ) =>
     request<QueryResult>("/query", {
       method: "POST",
       body: JSON.stringify({
@@ -150,5 +163,6 @@ export const api = {
         repository_id: repositoryId,
         top_k: topK,
       }),
+      signal,
     }),
 };

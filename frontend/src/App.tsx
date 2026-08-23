@@ -1,17 +1,27 @@
-import { useEffect, useState } from "react";
-import { api, Health } from "./lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { api, Health, RepositorySummary } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
 import { Chat } from "./components/Chat";
+import { ShortcutsModal } from "./components/ShortcutsModal";
+import { useTheme } from "./lib/useTheme";
 
 /**
  * Top-level layout. Owns the global state: which repository is selected,
- * and the current backend health. The sidebar mutates these; the chat
- * reads them.
+ * the current backend health, the active theme, and whether the mobile
+ * sidebar is open. The sidebar mutates the repo selection; the chat
+ * reads it.
+ *
+ * The repository list is hoisted to App so the Chat component can show
+ * a friendly repo name on each message without re-fetching.
  */
 export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [repos, setRepos] = useState<RepositorySummary[]>([]);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   useEffect(() => {
     const refresh = async () => {
@@ -28,44 +38,135 @@ export default function App() {
     return () => window.clearInterval(id);
   }, []);
 
+  // Hoisted repo loader — both Sidebar and Chat call this so they stay
+  // in sync without duplicate GETs.
+  const loadRepos = useCallback(async () => {
+    try {
+      const list = await api.listRepositories();
+      setRepos(list);
+    } catch {
+      /* Sidebar surfaces its own copy of the error. */
+    }
+  }, []);
+
+  // Global keyboard shortcuts: "?" opens the help, "/" focuses sidebar
+  // search (handled inside Sidebar). Escape closes the mobile sidebar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName.toLowerCase();
+      const isTyping =
+        tag === "input" || tag === "textarea" || target?.isContentEditable;
+      if (e.key === "?" && !isTyping) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      } else if (e.key === "Escape" && sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
+
+  const handleSelect = useCallback((id: number | null) => {
+    setSelectedRepo(id);
+    setSidebarOpen(false);
+  }, []);
+
+  const status = (() => {
+    if (healthError) {
+      return (
+        <>
+          <span className="status__dot status__dot--error" />
+          <span>offline</span>
+        </>
+      );
+    }
+    if (health) {
+      return (
+        <>
+          <span
+            className={`status__dot ${health.database ? "status__dot--ok" : "status__dot--degraded"}`}
+          />
+          <span>v{health.version}</span>
+        </>
+      );
+    }
+    return (
+      <>
+        <span className="status__dot status__dot--idle" />
+        <span>checking…</span>
+      </>
+    );
+  })();
+
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? "app--sidebar-open" : ""}`}>
       <header className="topbar">
-        <h1>
-          CodeBase<span className="accent"> AI</span>
-        </h1>
-        <div className="status">
-          {healthError ? (
-            <>
-              <span className="dot error" />
-              <span>backend offline — {healthError}</span>
-            </>
-          ) : health ? (
-            <>
-              <span className={`dot ${health.database ? "ok" : "degraded"}`} />
-              <span>
-                v{health.version} · db {health.database ? "ok" : "offline"}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="dot" />
-              <span>checking…</span>
-            </>
-          )}
+        <div className="topbar__brand">
+          <button
+            type="button"
+            className="topbar__menu"
+            aria-label="Toggle sidebar"
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            ☰
+          </button>
+          <h1 className="topbar__title">
+            CodeBase<span className="accent"> AI</span>
+          </h1>
+        </div>
+        <div className="topbar__actions">
+          <div className="status" aria-live="polite">
+            {status}
+          </div>
+          <button
+            type="button"
+            className="topbar__icon-button"
+            aria-label={
+              theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+            }
+            title={
+              theme === "dark" ? "Switch to light theme" : "Switch to dark theme"
+            }
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? "☀" : "☾"}
+          </button>
+          <button
+            type="button"
+            className="topbar__icon-button"
+            aria-label="Keyboard shortcuts (?)"
+            title="Keyboard shortcuts (?)"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            ?
+          </button>
         </div>
       </header>
 
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <Sidebar
+        repos={repos}
+        onReposChange={setRepos}
         selectedId={selectedRepo}
-        onSelect={setSelectedRepo}
-        onIngested={() => {
-          /* The sidebar already refreshed the repo list and selected
-           * the freshly-created row. Nothing for the parent to do. */
-        }}
+        onSelect={handleSelect}
+        loadRepos={loadRepos}
       />
 
-      <Chat repositoryId={selectedRepo} />
+      <Chat repositoryId={selectedRepo} repos={repos} />
+
+      <ShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
     </div>
   );
 }

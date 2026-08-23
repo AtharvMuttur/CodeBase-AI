@@ -4,7 +4,36 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1220" />
     <title>CodeBase AI</title>
+    <script>
+      // Apply the persisted theme synchronously so the first paint matches
+      // the user's choice — no flash of the wrong palette.
+      (function () {
+        try {
+          var stored = localStorage.getItem("codebase-ai.theme");
+          var theme = stored;
+          if (stored) {
+            try {
+              var parsed = JSON.parse(stored);
+              if (parsed === "dark" || parsed === "light") theme = parsed;
+            } catch (_) {
+              theme = null;
+            }
+          }
+          if (theme !== "dark" && theme !== "light") {
+            theme =
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (_) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
