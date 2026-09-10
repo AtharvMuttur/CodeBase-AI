@@ -16,10 +16,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
+from app.models import User
+from app.services.security import get_current_user
 from app.services.github import (
     GithubRef,
     GithubURLError,
@@ -41,6 +44,7 @@ def hermetic_db():
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
         future=True,
     )
     Base.metadata.create_all(engine)
@@ -221,6 +225,18 @@ def test_clone_to_temp_returns_path_and_commit(monkeypatch, tmp_path: Path) -> N
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_test_user():
+    """Keep route tests authenticated without weakening production routes."""
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1,
+        email="test@example.com",
+        password_hash="unused",
+    )
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 def test_create_repository_rejects_invalid_url() -> None:

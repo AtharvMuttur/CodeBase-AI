@@ -16,7 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models import User
 from ..schemas import IngestRequest, IngestResponse
+from ..services.security import get_current_user
 from ..services.pipeline import IngestionError, ingest_local_path
 
 
@@ -32,6 +34,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 def ingest_repository(
     payload: IngestRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> IngestResponse:
     """Walk ``payload.local_path``, chunk every source file, embed,
     and persist rows in pgvector.
@@ -41,6 +44,7 @@ def ingest_repository(
             db,
             name=payload.name,
             local_path=payload.local_path,
+            user_id=user.id,
         )
     except IngestionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

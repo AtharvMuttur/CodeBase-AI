@@ -7,6 +7,25 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+# ---------- Authentication ----------
+
+
+class AuthRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
 # ---------- Health ----------
 
 
@@ -151,6 +170,9 @@ class QueryResponse(BaseModel):
 
 __all__ = [
     "HealthResponse",
+    "AuthRequest",
+    "UserResponse",
+    "AuthResponse",
     "IngestRequest",
     "IngestResponse",
     "RepositorySummary",

@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import File, Repository
+from ..models import File, Repository, User
 from ..schemas import (
     CreateRepositoryRequest,
     CreateRepositoryResponse,
@@ -33,6 +33,7 @@ from ..schemas import (
 )
 from ..services.github import GithubURLError, parse_github_url
 from ..services.indexer import index_github_repository
+from ..services.security import get_current_user
 
 
 logger = logging.getLogger(__name__)
@@ -112,10 +113,15 @@ def _find_existing(repo_lookup: dict[str, Any], source_uri: str) -> Repository |
     response_model=list[RepositorySummary],
     summary="List all indexed repositories",
 )
-def list_repositories(db: Session = Depends(get_db)) -> list[RepositorySummary]:
+def list_repositories(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[RepositorySummary]:
     """Return every indexed repository, newest first."""
     rows = db.execute(
-        select(Repository).order_by(Repository.created_at.desc())
+        select(Repository)
+        .where(Repository.user_id == user.id)
+        .order_by(Repository.created_at.desc())
     ).scalars().all()
     return [_to_summary(r) for r in rows]
 
@@ -128,10 +134,11 @@ def list_repositories(db: Session = Depends(get_db)) -> list[RepositorySummary]:
 def get_repository(
     repository_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> RepositoryDetail:
     """Return one repository (with Phase 2 progress fields) or 404."""
     repo = db.get(Repository, repository_id)
-    if repo is None:
+    if repo is None or repo.user_id != user.id:
         raise HTTPException(
             status_code=404, detail=f"repository {repository_id} not found"
         )
@@ -145,6 +152,7 @@ def get_repository(
 def list_repository_files(
     repository_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> list[dict]:
     """Return the indexed files for one repository.
 
@@ -154,7 +162,7 @@ def list_repository_files(
     stable, and only consumed by the frontend.
     """
     repo = db.get(Repository, repository_id)
-    if repo is None:
+    if repo is None or repo.user_id != user.id:
         raise HTTPException(
             status_code=404, detail=f"repository {repository_id} not found"
         )
@@ -189,6 +197,7 @@ def create_repository(
     payload: CreateRepositoryRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> CreateRepositoryResponse:
     """Validate the URL, create the row, and return immediately.
 
@@ -217,6 +226,7 @@ def create_repository(
             Repository.source == "github",
             Repository.owner == ref.owner,
             Repository.name == ref.name,
+            Repository.user_id == user.id,
         )
         .order_by(Repository.created_at.desc())
         .first()
@@ -260,6 +270,7 @@ def create_repository(
             source="github",
             source_uri=ref.clone_url,
             owner=ref.owner,
+            user_id=user.id,
             status="queued",
         )
         db.add(repo)
@@ -311,6 +322,7 @@ def create_repository(
 def delete_repository(
     repository_id: int,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> Response:
     """Remove a repository row plus its files and chunks.
 
@@ -324,7 +336,7 @@ def delete_repository(
     through the normal dependency pipeline.
     """
     repo = db.get(Repository, repository_id)
-    if repo is None:
+    if repo is None or repo.user_id != user.id:
         raise HTTPException(
             status_code=404, detail=f"repository {repository_id} not found"
         )

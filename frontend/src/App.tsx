@@ -3,6 +3,8 @@ import { api, Health, RepositorySummary } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
 import { Chat } from "./components/Chat";
 import { ShortcutsModal } from "./components/ShortcutsModal";
+import { Auth } from "./components/Auth";
+import { AuthResponse, User } from "./lib/api";
 import { useTheme } from "./lib/useTheme";
 import { MenuIcon, MoonIcon, SunIcon, KeyboardIcon, SparklesIcon } from "./components/Icons";
 
@@ -16,6 +18,8 @@ import { MenuIcon, MoonIcon, SunIcon, KeyboardIcon, SparklesIcon } from "./compo
  * a friendly repo name on each message without re-fetching.
  */
 export default function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<number | null>(null);
@@ -25,6 +29,18 @@ export default function App() {
   const { theme, toggle: toggleTheme } = useTheme();
 
   useEffect(() => {
+    if (!api.hasToken()) {
+      setAuthChecked(true);
+      return;
+    }
+    void api.me()
+      .then(setAuthUser)
+      .catch(() => api.clearToken())
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
     const refresh = async () => {
       try {
         const h = await api.health();
@@ -37,7 +53,7 @@ export default function App() {
     void refresh();
     const id = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [authUser]);
 
   // Hoisted repo loader — both Sidebar and Chat call this so they stay
   // in sync without duplicate GETs.
@@ -73,6 +89,19 @@ export default function App() {
     setSelectedRepo(id);
     setSidebarOpen(false);
   }, []);
+
+  const handleAuthenticated = useCallback((result: AuthResponse) => {
+    api.setToken(result.access_token);
+    setAuthUser(result.user);
+  }, []);
+
+  if (!authChecked) {
+    return <div className="auth-loading">Loading your workspace...</div>;
+  }
+
+  if (!authUser) {
+    return <Auth onAuthenticated={handleAuthenticated} />;
+  }
 
   const status = (() => {
     if (healthError) {
@@ -121,6 +150,9 @@ export default function App() {
           </h1>
         </div>
         <div className="topbar__actions">
+          <div className="topbar__user" title={authUser.email}>
+            {authUser.email}
+          </div>
           <div className="status" aria-live="polite">
             {status}
           </div>
@@ -136,6 +168,18 @@ export default function App() {
             onClick={toggleTheme}
           >
             {theme === "dark" ? <SunIcon size={18} /> : <MoonIcon size={18} />}
+          </button>
+          <button
+            type="button"
+            className="topbar__signout"
+            onClick={() => {
+              api.clearToken();
+              setAuthUser(null);
+              setRepos([]);
+              setSelectedRepo(null);
+            }}
+          >
+            Sign out
           </button>
           <button
             type="button"

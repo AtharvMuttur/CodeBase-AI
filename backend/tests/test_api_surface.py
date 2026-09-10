@@ -13,13 +13,28 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
+from app.models import User
+from app.services.security import get_current_user
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_test_user():
+    """Keep legacy route-shape tests authenticated without weakening production routes."""
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1,
+        email="test@example.com",
+        password_hash="unused",
+    )
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture()
@@ -33,6 +48,7 @@ def hermetic_db(monkeypatch):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
         future=True,
     )
     Base.metadata.create_all(engine)

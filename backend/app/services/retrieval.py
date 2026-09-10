@@ -39,6 +39,7 @@ def search(
     *,
     question: str,
     repository_id: Optional[int] = None,
+    user_id: int | None = None,
     top_k: int = 5,
 ) -> list[RetrievedChunk]:
     """Return the top-k chunks most similar to ``question``.
@@ -76,6 +77,9 @@ def search(
         JOIN files f ON f.id = c.file_id
         WHERE c.embedding IS NOT NULL
           AND (:repository_id IS NULL OR c.repository_id = :repository_id)
+          AND c.repository_id IN (
+              SELECT r.id FROM repositories r WHERE r.user_id = :user_id
+          )
         ORDER BY c.embedding <=> CAST(:embedding AS vector)
         LIMIT :top_k
         """
@@ -86,6 +90,7 @@ def search(
         {
             "embedding": embedding,
             "repository_id": repository_id,
+            "user_id": user_id,
             "top_k": top_k,
         },
     ).all()

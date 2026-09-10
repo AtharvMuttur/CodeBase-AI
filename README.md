@@ -8,6 +8,7 @@ The project contains:
 - A FastAPI backend for cloning, indexing, retrieval, and answers.
 - PostgreSQL 16 with the pgvector extension for repository metadata and vector search.
 - Gemini-native or OpenAI-compatible embedding and LLM integrations, plus local fallback modes.
+- Email/password authentication with JWT sessions and private repository ownership.
 
 ## How It Works
 
@@ -34,6 +35,7 @@ The default chunker uses windows of approximately 60 lines with a 15-line overla
 - Docker Desktop with Docker Compose v2.
 - At least 4 GB of available memory for the containers.
 - A GitHub token for private repositories or repositories that require authentication.
+- An authentication secret with at least 32 characters for non-development deployments.
 - Optional Gemini or OpenAI-compatible API credentials for higher-quality embeddings and generated answers.
 
 The application can run without model credentials. In that mode, embeddings use a deterministic local hash and answers use an extractive fallback. Retrieval works, but semantic quality is limited.
@@ -84,6 +86,8 @@ Copy `.env.example` to `.env` and update the values before starting Docker. Comp
 | `DATABASE_URL` | SQLAlchemy connection URL. Use `db` as the hostname inside Compose. |
 | `FRONTEND_URL` | Frontend origin allowed by backend CORS. |
 | `VITE_API_BASE` | Public backend URL embedded into the frontend build. |
+| `AUTH_SECRET_KEY` | Secret used to sign JWT access tokens. Use a random value in deployment. |
+| `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | JWT lifetime. Default is 1440 minutes. |
 | `GITHUB_TOKEN` | Optional GitHub token for authenticated repository access and higher API limits. |
 | `LLM_PROVIDER` | `gemini` for the native Gemini client or another provider using the compatible client. |
 | `LLM_API_KEY` | LLM credential. Empty values use the extractive fallback. |
@@ -106,6 +110,37 @@ The current database schema uses `vector(768)`. Keep this setting at `768` for t
 ### API keys
 
 Do not commit `.env` or paste credentials into source control, chat, issue trackers, or logs. If a key has been exposed, revoke it and create a replacement.
+
+## Authentication and Privacy
+
+The application requires an account before repository or query endpoints can be used. The frontend provides registration and sign-in screens. Successful authentication stores a JWT session in the browser and sends it as a Bearer token on API requests.
+
+Each repository created after authentication is assigned to the current user. Repository listing, details, files, deletion, ingestion, and querying are scoped to that owner. The health endpoint remains public.
+
+Authentication endpoints:
+
+```http
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me
+```
+
+Registration and login bodies use:
+
+```json
+{
+  "email": "you@example.com",
+  "password": "at-least-8-characters"
+}
+```
+
+For an existing PostgreSQL volume, run the migration once before using authentication:
+
+```powershell
+Get-Content backend/scripts/migrate_auth.sql | docker compose exec -T db psql -U codebase -d codebase_ai
+```
+
+Existing pre-auth repositories have no owner and are intentionally not visible to authenticated users. Assign them manually to a user or recreate them after signing in. A fresh database receives the users table automatically.
 
 ## Using the Application
 
@@ -254,7 +289,7 @@ Set-Location frontend
 npm run build
 ```
 
-The backend test suite covers URL parsing, ingestion, embeddings, API schemas, health checks, and fallback answers. It does not replace a full PostgreSQL integration test or external-provider test.
+The backend test suite covers authentication, URL parsing, ingestion, embeddings, API schemas, health checks, and fallback answers. It does not replace a full PostgreSQL integration test or external-provider test.
 
 ## Data and Docker Volumes
 

@@ -52,6 +52,23 @@ REPO_STATUSES: frozenset[str] = frozenset(
 )
 
 
+class User(Base):
+    """An application user who owns private repositories."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(BigInt, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    repositories: Mapped[list["Repository"]] = relationship(
+        "Repository", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
 class Repository(Base):
     """An indexed codebase — a local folder in Phase 1, a GitHub URL in Phase 2.
 
@@ -72,6 +89,12 @@ class Repository(Base):
     __tablename__ = "repositories"
 
     id: Mapped[int] = mapped_column(BigInt, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInt,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
     source_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -97,6 +120,7 @@ class Repository(Base):
     files: Mapped[list["File"]] = relationship(
         "File", back_populates="repository", cascade="all, delete-orphan"
     )
+    user: Mapped[User | None] = relationship("User", back_populates="repositories")
     chunks: Mapped[list["CodeChunk"]] = relationship(
         "CodeChunk", back_populates="repository", cascade="all, delete-orphan"
     )
@@ -170,4 +194,4 @@ class CodeChunk(Base):
     file: Mapped[File] = relationship("File", back_populates="chunks")
 
 
-__all__ = ["Repository", "File", "CodeChunk", "EMBEDDING_DIMENSIONS", "REPO_STATUSES"]
+__all__ = ["User", "Repository", "File", "CodeChunk", "EMBEDDING_DIMENSIONS", "REPO_STATUSES"]

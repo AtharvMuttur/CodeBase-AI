@@ -20,8 +20,16 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- to recreate the column.
 -- ------------------------------------------------------------
 
+CREATE TABLE IF NOT EXISTS users (
+    id            BIGSERIAL PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS repositories (
     id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT REFERENCES users(id) ON DELETE CASCADE,
     name            TEXT NOT NULL,
     source          TEXT NOT NULL,            -- "local" | "github" | "url"
     source_uri      TEXT,                     -- path/url the repo was loaded from
@@ -50,6 +58,7 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 CREATE INDEX IF NOT EXISTS ix_files_repository_id ON files (repository_id);
+CREATE INDEX IF NOT EXISTS ix_repositories_user_id ON repositories (user_id);
 
 -- code_chunks: vector column sized to EMBEDDING_DIMENSIONS.
 -- Default 768 matches Gemini text-embedding-004; raise/lower to match

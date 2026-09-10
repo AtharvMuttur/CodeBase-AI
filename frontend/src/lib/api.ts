@@ -10,6 +10,15 @@ const RAW_BASE = import.meta.env.VITE_API_BASE as string | undefined;
 const API_BASE: string = RAW_BASE && /^(https?:)?\/\//.test(RAW_BASE)
   ? `${RAW_BASE.replace(/\/$/, "")}/api`
   : "/api";
+const TOKEN_KEY = "codebase-ai-access-token";
+
+function getToken(): string | null {
+  try {
+    return window.localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export interface Health {
   status: "ok" | "degraded" | "error";
@@ -17,6 +26,17 @@ export interface Health {
   database: boolean;
   timestamp: string;
   details: Record<string, unknown>;
+}
+
+export interface User {
+  id: number;
+  email: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
 }
 
 export interface RepositorySummary {
@@ -91,8 +111,13 @@ export interface QueryResult {
 // --- helpers -------------------------------------------------------------
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
     ...init,
   });
   // Honour AbortSignal — the caller may pass one via init.signal to cancel
@@ -124,6 +149,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // --- public API ----------------------------------------------------------
 
 export const api = {
+  hasToken: () => Boolean(getToken()),
+
+  setToken: (token: string) => {
+    window.localStorage.setItem(TOKEN_KEY, token);
+  },
+
+  clearToken: () => {
+    window.localStorage.removeItem(TOKEN_KEY);
+  },
+
+  register: (email: string, password: string) =>
+    request<AuthResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }).then((result) => {
+      api.setToken(result.access_token);
+      return result;
+    }),
+
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }).then((result) => {
+      api.setToken(result.access_token);
+      return result;
+    }),
+
+  me: () => request<User>("/auth/me"),
+
   health: () => request<Health>("/health"),
 
   listRepositories: () => request<RepositorySummary[]>("/repositories"),

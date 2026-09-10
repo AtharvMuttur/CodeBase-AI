@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     # ---------- CORS ----------
     frontend_url: str = Field(default="http://localhost:5173")
 
+    # ---------- Authentication ----------
+    auth_secret_key: str = Field(
+        default="change-this-development-secret-key-32-chars",
+        min_length=32,
+    )
+    auth_access_token_expire_minutes: int = Field(
+        default=60 * 24,
+        ge=5,
+        le=60 * 24 * 30,
+    )
+
     # ---------- LLM ----------
     llm_provider: str = Field(default="openai")
     llm_api_key: Optional[str] = Field(default=None)

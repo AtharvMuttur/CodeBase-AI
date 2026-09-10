@@ -47,6 +47,7 @@ def ingest_local_path(
     local_path: str,
     repository_id: int | None = None,
     source: str = "local",
+    user_id: int | None = None,
 ) -> IngestionResult:
     """Index ``local_path`` into the database.
 
@@ -95,6 +96,7 @@ def ingest_local_path(
             name=name,
             source=source,
             source_uri=str(root),
+            user_id=user_id,
             status="indexing",
         )
         session.add(repo)

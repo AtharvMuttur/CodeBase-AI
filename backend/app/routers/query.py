@@ -21,9 +21,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models import User
 from ..schemas import ChunkCitation, QueryRequest, QueryResponse
 from ..services.llm import ContextChunk, LLMError, generate_answer
 from ..services.retrieval import search
+from ..services.security import get_current_user
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,7 @@ router = APIRouter(prefix="/query", tags=["query"])
 def ask_question(
     payload: QueryRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> QueryResponse:
     """Embed the question, retrieve the top-k chunks, and ask the LLM."""
     try:
@@ -46,6 +49,7 @@ def ask_question(
             db,
             question=payload.question,
             repository_id=payload.repository_id,
+            user_id=user.id,
             top_k=payload.top_k,
         )
     except Exception as exc:  # noqa: BLE001 — any retrieval failure is a 500

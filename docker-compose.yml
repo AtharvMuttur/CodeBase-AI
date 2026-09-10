@@ -42,6 +42,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://codebase:codebase_dev_password@db:5432/codebase_ai}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-this-development-secret-key-32-chars}
+      AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: ${AUTH_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
