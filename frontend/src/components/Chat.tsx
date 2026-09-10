@@ -156,6 +156,9 @@ export function Chat({ repositoryId, repos }: Props) {
             <div className="chat__welcome-icon">
               <SparklesIcon size={26} />
             </div>
+            <span className="chat__welcome-kicker">
+              {repositoryId === null ? "Repository intelligence" : "Repository selected"}
+            </span>
             <h2 className="chat__welcome-title">
               {repositoryId === null
                 ? "Ask anything across your indexed code"
@@ -165,6 +168,7 @@ export function Chat({ repositoryId, repos }: Props) {
               Answers include citations to the source file and line range.
               Press <kbd>?</kbd> for keyboard shortcuts.
             </p>
+            <div className="chat__welcome-rule" aria-hidden="true" />
             <div className="chat__suggestions">
               {SUGGESTIONS.map((s) => (
                 <button
@@ -369,7 +373,7 @@ function CitationView({
   citation: ChunkCitation;
   index: number;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   const lines = useMemo(() => {
     const code = citation.content.split("\n");

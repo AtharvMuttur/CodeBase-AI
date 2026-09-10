@@ -280,7 +280,11 @@ def create_repository(
 
     logger.info(
         "repository_queued",
-        extra={"repository_id": repo.id, "owner": ref.owner, "name": ref.name},
+        extra={
+            "repository_id": repo.id,
+            "owner": ref.owner,
+            "repository_name": ref.name,
+        },
     )
 
     return CreateRepositoryResponse(

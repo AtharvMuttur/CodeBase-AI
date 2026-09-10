@@ -35,6 +35,11 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 
+def _git_environment() -> dict[str, str]:
+    """Prevent Git from blocking the background indexer on a prompt."""
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+
 # GitHub enforces the same character set for usernames and repo names
 # (with a couple of edge cases for legacy repos). We keep the regex
 # strict so a path-traversal or shell-metacharacter attempt is rejected
@@ -147,6 +152,7 @@ def default_branch(ref: GithubRef, *, token: Optional[str] = None) -> str:
             timeout=30,
             check=False,
             shell=False,
+            env=_git_environment(),
         )
     except subprocess.TimeoutExpired as exc:
         raise GithubURLError(f"git ls-remote timed out for {ref.full_name}") from exc
@@ -157,6 +163,11 @@ def default_branch(ref: GithubRef, *, token: Optional[str] = None) -> str:
         # Git exits non-zero for 404 / 401 / 403; surface a clean error.
         stderr = (result.stderr or "").strip().splitlines()
         msg = stderr[-1] if stderr else f"git ls-remote failed with code {result.returncode}"
+        if "could not read Username" in msg or "terminal prompts disabled" in msg:
+            raise GithubURLError(
+                "GitHub authentication is required for this repository; "
+                "configure GITHUB_TOKEN and retry"
+            )
         raise GithubURLError(f"{msg} (repo={ref.full_name})")
 
     # Format: "ref: refs/heads/main\tHEAD"
@@ -227,6 +238,7 @@ def clone_to_temp(
             timeout=300,
             check=False,
             shell=False,
+            env=_git_environment(),
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").strip().splitlines()
@@ -239,6 +251,11 @@ def clone_to_temp(
             # message before re-raising so we don't leak credentials to
             # logs.
             msg = msg.replace(token, "***") if token else msg
+            if "could not read Username" in msg or "terminal prompts disabled" in msg:
+                raise GithubURLError(
+                    "GitHub authentication is required for this repository; "
+                    "configure GITHUB_TOKEN and retry"
+                )
             raise GithubURLError(f"clone failed for {ref.full_name}: {msg}")
 
         # Read the HEAD commit SHA inside the cloned repo.

@@ -274,10 +274,10 @@ def _embed_gemini_native(texts: list[str]) -> np.ndarray:
                 f"gemini embedContent returned unexpected shape: {data!r}"
             ) from exc
 
-    # Cap worker count at both the text count and a sensible ceiling so
-    # a single embed_texts(["q"]) call doesn't spin up a 16-thread pool
-    # for one request.
-    max_workers = min(16, max(1, len(texts)))
+    # Gemini rate-limits concurrent requests aggressively on many plans.
+    # Keep this below the provider's burst limit so a repository does not
+    # spend several retry cycles receiving HTTP 429 responses.
+    max_workers = min(4, max(1, len(texts)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         # map() preserves input order so the output rows line up with
         # the input chunks — critical because pipeline.py zips them.

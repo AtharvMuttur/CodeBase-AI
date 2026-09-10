@@ -13,7 +13,6 @@ import {
   FolderIcon,
   TrashIcon,
   SearchIcon,
-  HomeIcon,
 } from "./Icons";
 
 interface Props {
@@ -44,12 +43,6 @@ export function Sidebar({
   const [githubUrl, setGithubUrl] = useState("");
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubCollapsed, setGithubCollapsed] = useState(false);
-
-  // --- Local-path form state (Phase 1, preserved) ---
-  const [name, setName] = useState("sample-repo");
-  const [path, setPath] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [localCollapsed, setLocalCollapsed] = useState(true);
 
   // --- Repository list state ---
   const [reposError, setReposError] = useState<string | null>(null);
@@ -175,40 +168,6 @@ export function Sidebar({
     }
   };
 
-  // --- Local-path submit (Phase 1, preserved) ---
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      const result = await api.ingestRepository(name, path);
-      push(
-        "success",
-        `Indexed ${result.file_count} files into ${result.chunk_count} chunks in ${result.elapsed_seconds}s.`,
-      );
-      await loadRepos();
-      mergeRepo({
-        id: result.repository_id,
-        name: result.name,
-        source: "local",
-        source_uri: path,
-        owner: null,
-        branch: null,
-        commit_sha: null,
-        file_count: result.file_count,
-        chunk_count: result.chunk_count,
-        status: result.status,
-        error_message: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      onSelect(result.repository_id);
-    } catch (err) {
-      push("error", (err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   // --- Delete ---
   const confirmDelete = async () => {
     if (!pendingDelete) return;
@@ -274,53 +233,6 @@ export function Sidebar({
         )}
       </section>
 
-      {/* Local-path form (Phase 1) */}
-      <section className="sidebar__section" aria-labelledby="local-heading">
-        <h2
-          id="local-heading"
-          className="sidebar__heading"
-          data-collapsed={localCollapsed ? "true" : "false"}
-          onClick={() => setLocalCollapsed((v) => !v)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setLocalCollapsed((v) => !v);
-            }
-          }}
-        >
-          <span>Index a local folder</span>
-          <span className="sidebar__heading-toggle" aria-hidden="true">
-            <ChevronDownIcon size={14} />
-          </span>
-        </h2>
-        {!localCollapsed && (
-          <form className="ingest-form" onSubmit={handleSubmit}>
-            <label htmlFor="repo-name">Name</label>
-            <input
-              id="repo-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-project"
-              required
-            />
-            <label htmlFor="repo-path">Local path</label>
-            <input
-              id="repo-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="C:\Users\you\projects\my-project"
-              required
-              spellCheck={false}
-            />
-            <button type="submit" disabled={submitting || !name || !path}>
-              {submitting ? "Indexing…" : "Index"}
-            </button>
-          </form>
-        )}
-      </section>
-
       {/* Repository list */}
       <section className="sidebar__section" aria-labelledby="repos-heading">
         <h2 id="repos-heading" className="sidebar__heading">
@@ -371,23 +283,6 @@ export function Sidebar({
           </div>
         )}
         <div className="repo-list">
-          <button
-            type="button"
-            className={`repo-card ${selectedId === null ? "repo-card--selected" : ""}`}
-            onClick={() => onSelect(null)}
-          >
-            <div className="repo-card__body">
-              <div className="repo-card__name">
-                <span className="repo-card__name-icon">
-                  <HomeIcon size={14} />
-                </span>
-                <span className="repo-card__name-text">All repositories</span>
-              </div>
-              <div className="repo-card__meta">
-                <span>search across every indexed repo</span>
-              </div>
-            </div>
-          </button>
           {filteredRepos.map((repo) => (
             <RepoCard
               key={repo.id}
