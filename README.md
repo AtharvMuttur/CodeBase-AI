@@ -1,285 +1,324 @@
 # CodeBase AI
 
-A RAG (Retrieval-Augmented Generation) assistant for understanding codebases. Point it at a local folder, ask natural-language questions, and get answers grounded in the actual source code with citations back to file paths and line ranges.
+CodeBase AI is a repository question-answering assistant. It clones GitHub repositories, indexes source files with embeddings, searches the indexed code with PostgreSQL/pgvector, and answers questions with file and line citations.
 
-**Phase 1 — MVP.** Local-folder ingestion, line-window chunking, OpenAI-compatible embeddings and LLM (with a deterministic, dependency-free fallback when no API keys are configured), pgvector semantic search, and a React chat UI.
+The project contains:
 
-```
-Local Repository
-      ↓
-File discovery (allow/deny by extension)
-      ↓
-Line-window chunking (~60 lines, 15-line overlap)
-      ↓
-Embeddings (OpenAI-compatible remote, or deterministic local hash)
-      ↓
-PostgreSQL + pgvector
-      ↓
-Cosine-distance similarity search
-      ↓
-LLM answer (or extractive fallback) with citations
-```
+- A React + TypeScript frontend for repository management and chat.
+- A FastAPI backend for cloning, indexing, retrieval, and answers.
+- PostgreSQL 16 with the pgvector extension for repository metadata and vector search.
+- Gemini-native or OpenAI-compatible embedding and LLM integrations, plus local fallback modes.
 
-## Architecture
+## How It Works
 
-```
-┌────────────┐    ┌─────────────┐    ┌────────────┐
-│  Frontend  │ →  │   Backend   │ →  │ PostgreSQL │
-│  Vite/React│    │   FastAPI   │    │ + pgvector │
-│  :5173     │    │   :8000     │    │   :5432    │
-└────────────┘    └─────────────┘    └────────────┘
+```text
+GitHub URL
+    |
+    v
+Validate URL -> discover default branch -> shallow clone
+    |
+    v
+Discover source files -> split into overlapping line chunks
+    |
+    v
+Generate embeddings -> store files, chunks, and vectors in PostgreSQL
+    |
+    v
+Embed question -> retrieve similar chunks -> generate cited answer
 ```
 
-| Layer | Tech | Lives in |
-|---|---|---|
-| Frontend | Vite + React + TypeScript | `frontend/` |
-| Backend | FastAPI + SQLAlchemy 2.x + psycopg | `backend/` |
-| Database | PostgreSQL 16 + pgvector | `docker-compose.yml` |
-| Embeddings | OpenAI-compatible HTTP (`/v1/embeddings`) | `backend/app/services/embeddings.py` |
-| LLM | OpenAI-compatible HTTP (`/v1/chat/completions`) | `backend/app/services/llm.py` |
-| Retrieval | pgvector `<=>` cosine distance | `backend/app/services/retrieval.py` |
-| Chunking | line-window with overlap | `backend/app/services/ingestion.py` |
+The default chunker uses windows of approximately 60 lines with a 15-line overlap. Repository cards show cloning and indexing progress, errors, file counts, and chunk counts. Citation panels are collapsed initially and can be opened individually.
 
-## Project structure
+## Requirements
 
-```
-CodeBase AI/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI factory
-│   │   ├── config.py            # pydantic-settings
-│   │   ├── database.py          # SQLAlchemy engine + session
-│   │   ├── models/              # ORM: Repository, File, CodeChunk
-│   │   ├── schemas/             # pydantic request/response models
-│   │   ├── routers/             # health, ingest, query, repositories
-│   │   ├── services/            # ingestion, embeddings, retrieval, llm, pipeline
-│   │   └── core/                # logging
-│   ├── scripts/init_db.sql      # pgvector extension + schema
-│   ├── tests/                   # pytest
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── main.tsx
-│   │   ├── components/          # Sidebar, Chat
-│   │   ├── lib/api.ts           # typed API client
-│   │   └── styles.css
-│   ├── vite.config.ts
-│   ├── package.json
-│   └── Dockerfile
-├── docker-compose.yml
-├── .env.example
-└── README.md
+- Docker Desktop with Docker Compose v2.
+- At least 4 GB of available memory for the containers.
+- A GitHub token for private repositories or repositories that require authentication.
+- Optional Gemini or OpenAI-compatible API credentials for higher-quality embeddings and generated answers.
+
+The application can run without model credentials. In that mode, embeddings use a deterministic local hash and answers use an extractive fallback. Retrieval works, but semantic quality is limited.
+
+## Quick Start
+
+From the repository root:
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+docker compose ps
 ```
 
-## Prerequisites
-
-- Docker Desktop (or any Docker Engine with Compose v2)
-- 4 GB RAM available for the containers
-- (Optional) An OpenAI API key, or any OpenAI-compatible endpoint for embeddings + chat
-
-## Quick start
+### Linux or macOS
 
 ```bash
-# 1. Clone and enter the project
-cd "D:/Atharv/ML Projects/CodeBase AI"
-
-# 2. Create your .env (API keys are optional — see "Without API keys" below)
 cp .env.example .env
-cp backend/.env.example backend/.env
-# Edit .env and add LLM_API_KEY / EMBEDDING_API_KEY if you have them.
-
-# 3. Build and start all three services
 docker compose up --build -d
-
-# 4. Wait for the healthcheck to pass (first boot takes ~5-10 min while images are pulled)
 docker compose ps
-
-# 5. Open the UI
-# Frontend: http://localhost:5173
-# Backend:  http://localhost:8000/docs
-# Health:   http://localhost:8000/api/health
 ```
 
-After the first build, subsequent `docker compose up -d` runs take ~30 seconds because images are cached.
+Open these URLs after the containers start:
+
+- Frontend: http://localhost:5173
+- Backend API documentation: http://localhost:8000/docs
+- Health check: http://localhost:8000/api/health
+
+Check health with PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/health
+```
+
+Expected health output includes `"status":"ok"` and `"database":true`.
 
 ## Configuration
 
-All configuration is environment-driven. The repo ships `.env.example` for both the root and the backend. The backend reads its `.env` automatically when run on the host; in Docker the values are passed through `docker-compose.yml`.
+Copy `.env.example` to `.env` and update the values before starting Docker. Compose passes these variables into the backend and uses `VITE_API_BASE` when building the frontend.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `DATABASE_URL` | `postgresql+psycopg://codebase:codebase_dev_password@db:5432/codebase_ai` | SQLAlchemy URL. Use `db` inside Docker, `localhost` on the host. |
-| `FRONTEND_URL` | `http://localhost:5173` | CORS allowlist. |
-| `LLM_API_KEY` | _(empty)_ | OpenAI-compatible `/v1/chat/completions`. Empty → extractive fallback. |
-| `LLM_MODEL` | `gpt-4o-mini` | Used when `LLM_API_KEY` is set. |
-| `LLM_BASE_URL` | `https://api.openai.com` | Override for Together / Ollama / vLLM / etc. |
-| `EMBEDDING_API_KEY` | _(empty)_ | OpenAI-compatible `/v1/embeddings`. Empty → deterministic local hash. |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Used when `EMBEDDING_API_KEY` is set. |
-| `EMBEDDING_DIMENSIONS` | `1536` | Must match the `vector(N)` column in `init_db.sql`. |
-| `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | `openai` | Provider identifier (provider-agnostic). |
-| `LOG_LEVEL` | `INFO` | Root logger level. |
-| `MAX_FILE_SIZE_KB` | `512` | Skip files larger than this when indexing. |
-| `MAX_FILES_PER_REPO` | `20000` | Hard cap per repository. |
+| Variable | Purpose |
+| --- | --- |
+| `POSTGRES_USER` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | PostgreSQL password. Change this outside local development. |
+| `POSTGRES_DB` | PostgreSQL database name. |
+| `DATABASE_URL` | SQLAlchemy connection URL. Use `db` as the hostname inside Compose. |
+| `FRONTEND_URL` | Frontend origin allowed by backend CORS. |
+| `VITE_API_BASE` | Public backend URL embedded into the frontend build. |
+| `GITHUB_TOKEN` | Optional GitHub token for authenticated repository access and higher API limits. |
+| `LLM_PROVIDER` | `gemini` for the native Gemini client or another provider using the compatible client. |
+| `LLM_API_KEY` | LLM credential. Empty values use the extractive fallback. |
+| `LLM_MODEL` | Model name used for answer generation. |
+| `LLM_BASE_URL` | Provider base URL. Gemini defaults to its `v1beta` endpoint. |
+| `EMBEDDING_PROVIDER` | `gemini` for Gemini-native embeddings; other values use the OpenAI-compatible client. |
+| `EMBEDDING_API_KEY` | Embedding credential. Empty values use local deterministic embeddings. |
+| `EMBEDDING_MODEL` | Embedding model name. |
+| `EMBEDDING_BASE_URL` | Optional embedding provider base URL. |
+| `EMBEDDING_DIMENSIONS` | Vector size. The checked-in schema and ORM currently use `768`. |
+| `MAX_FILE_SIZE_KB` | Maximum file size considered during indexing. |
+| `MAX_FILES_PER_REPO` | Maximum number of discovered files per repository. |
+| `MAX_REPO_SIZE_MB` | Configured repository size limit; cloning enforcement is not currently implemented. |
+| `LOG_LEVEL` | Backend log level. |
 
-## Without API keys
+### Embedding dimension warning
 
-Phase 1 runs end-to-end **without** any external API keys:
+The current database schema uses `vector(768)`. Keep this setting at `768` for the supplied Compose/database setup. Changing the embedding model or dimension requires a coordinated schema migration and re-indexing; changing only `.env` is not sufficient.
 
-- **Embeddings** fall back to a deterministic hashed backend (vectors are L2-normalized so the rest of the pipeline is exercised; the semantic quality is not comparable to a real model).
-- **LLM** falls back to an extractive answer — the top retrieved chunks are returned verbatim with a notice that real generation is disabled.
+### API keys
 
-You can flip on real models by setting `LLM_API_KEY` and `EMBEDDING_API_KEY` in `.env` and restarting `docker compose up -d backend`.
+Do not commit `.env` or paste credentials into source control, chat, issue trackers, or logs. If a key has been exposed, revoke it and create a replacement.
 
-## Verify the stack
+## Using the Application
 
-```bash
-# Backend health (should report database: true)
-curl http://localhost:8000/api/health
+1. Open the frontend.
+2. Expand **Clone from GitHub** if needed.
+3. Enter a repository URL such as `https://github.com/owner/repository`.
+4. Select **Clone & Index**.
+5. Wait for the repository card to reach `ready` or display a failure message.
+6. Select the repository and ask a question in the chat composer.
+7. Open individual citation headers when you want to inspect retrieved source code.
 
-# List routes
-curl -s http://localhost:8000/openapi.json | python -c "import json,sys; r=json.load(sys.stdin); print('\n'.join(p for p in r['paths']))"
+The frontend currently exposes GitHub ingestion. The backend also retains a local-folder ingestion endpoint for API and development use; it requires a path visible inside the backend container when Docker is used.
+
+## API
+
+Interactive documentation is available at http://localhost:8000/docs.
+
+### Health
+
+```http
+GET /api/health
 ```
 
-## Index a repository and ask a question
+### List repositories
 
-The fastest path is via the UI at `http://localhost:5173`:
-
-1. Type a name (e.g. `my-project`).
-2. Type the absolute path to a local folder. **Inside Docker**, this is a path the backend container can see — `docker-compose.yml` mounts the named volume `codebase_workspace` at `/app/workspace`, so files in there are reachable as `/app/workspace/...`. On the host (no Docker), use a host path.
-3. Click **Index**.
-4. Switch to the chat panel and ask a question.
-
-The same flow works via curl:
-
-```bash
-# Ingest
-curl -s -X POST http://localhost:8000/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"name":"my-project","local_path":"/app/workspace/my-project"}'
-
-# Query
-curl -s -X POST http://localhost:8000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"How does the chunker work?","repository_id":1,"top_k":5}'
+```http
+GET /api/repositories
 ```
 
-The query response includes:
+### Queue a GitHub repository
 
-```json
-{
-  "answer": "...",
-  "chunks": [
-    {
-      "chunk_id": 7,
-      "file_id": 3,
-      "file_path": "src/ingestion.py",
-      "language": "py",
-      "start_line": 200,
-      "end_line": 240,
-      "content": "...",
-      "score": 0.81
-    }
-  ],
-  "model": "gpt-4o-mini",
-  "repository_id": 1
-}
+```powershell
+$body = @{ url = "https://github.com/owner/repository" } | ConvertTo-Json
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/repositories `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-## API surface (Phase 1)
+The endpoint returns immediately with a repository id. Poll the detail endpoint to observe progress:
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/health` | API + DB status. |
-| `GET` | `/api/repositories` | List indexed repositories. |
-| `GET` | `/api/repositories/{id}` | Single repository. |
-| `GET` | `/api/repositories/{id}/files` | Files in a repository. |
-| `POST` | `/api/ingest` | Index a local folder. Body: `{name, local_path}`. |
-| `POST` | `/api/query` | Ask a question. Body: `{question, repository_id?, top_k?}`. |
+```http
+GET /api/repositories/{repository_id}
+```
 
-Full schema at `http://localhost:8000/docs` (Swagger UI).
+Possible indexing states include `queued`, `cloning`, `scanning`, `chunking`, `embedding`, `ready`, and `failed`.
 
-## Running the backend on the host (without Docker)
+### Ask a question
 
-```bash
-cd backend
+```powershell
+$body = @{
+  question = "How does the indexing pipeline work?"
+  repository_id = 1
+  top_k = 5
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:8000/api/query `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+The response includes the answer, model name, repository id, and retrieved citations with file paths, line ranges, content, and similarity scores.
+
+### Delete a repository
+
+```http
+DELETE /api/repositories/{repository_id}
+```
+
+Deletion cascades to the repository's files and code chunks.
+
+## Project Structure
+
+```text
+backend/
+  app/
+    main.py                 FastAPI application factory
+    config.py               Environment settings
+    database.py             SQLAlchemy engine and sessions
+    routers/                HTTP endpoints
+    services/               GitHub, indexing, embeddings, retrieval, and LLM logic
+    models/                 Repository, file, and chunk ORM models
+    schemas/                Request and response schemas
+  scripts/init_db.sql       PostgreSQL and pgvector schema
+  tests/                    Backend tests
+
+frontend/
+  src/
+    App.tsx                 Application shell and global state
+    components/             Sidebar, chat, modal, toast, and icons
+    lib/                    API client, markdown, highlighting, storage, and theme
+    styles.css              UI design system and responsive layout
+
+docker-compose.yml          Database, backend, and frontend services
+.env.example                Environment variable template
+```
+
+## Development Without Docker
+
+### Backend
+
+The backend still requires PostgreSQL with pgvector.
+
+```powershell
+Set-Location backend
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# PostgreSQL with pgvector must be running somewhere reachable.
-# The fastest path is `docker compose up -d db` and then point at `localhost`.
-DATABASE_URL=postgresql+psycopg://codebase:codebase_dev_password@localhost:5432/codebase_ai \
-  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+$env:DATABASE_URL = "postgresql+psycopg://codebase:codebase_dev_password@localhost:5432/codebase_ai"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Running the frontend on the host (without Docker)
+Start only the database with Docker when needed:
 
-```bash
-cd frontend
+```powershell
+docker compose up -d db
+```
+
+### Frontend
+
+```powershell
+Set-Location frontend
 npm install
-npm run dev    # http://localhost:5173 — proxies /api to VITE_API_BASE (default http://localhost:8000)
+npm run dev
 ```
 
-## Tests
+The Vite development server runs at http://localhost:5173 and proxies `/api` requests to the backend.
 
-```bash
-cd backend
+## Tests and Validation
+
+Run backend tests from the `backend` directory:
+
+```powershell
+Set-Location backend
 python -m pytest -v
 ```
 
-24 tests cover: health endpoint, OpenAPI schema, chunking, file discovery, embedding determinism, the extractive fallback, and request validation.
+Build the frontend:
 
-## Verified end-to-end
+```powershell
+Set-Location frontend
+npm run build
+```
 
-The Phase 1 verification was performed against the running Docker stack:
+The backend test suite covers URL parsing, ingestion, embeddings, API schemas, health checks, and fallback answers. It does not replace a full PostgreSQL integration test or external-provider test.
 
-| Check | Result |
-|---|---|
-| `GET /api/health` | `{"status":"ok","database":true,"version":"0.1.0"}` |
-| `POST /api/ingest` (sample calculator) | `repository_id=1, file_count=2, chunk_count=2, 0.11s` |
-| `POST /api/ingest` (backend self) | `repository_id=2, file_count=32, chunk_count=65, 0.43s` |
-| pgvector: `SELECT COUNT(*), COUNT(embedding) FROM code_chunks` | `67  /  67` (every chunk has a 1536-d embedding) |
-| `POST /api/query` | Returns ranked chunks + answer (extractive fallback when `LLM_API_KEY` unset) |
-| `GET /api/repositories` | Lists both indexed repositories |
-| `GET /api/repositories/{id}/files` | Lists files per repository |
-| Frontend | `http://localhost:5173` returns the React shell |
+## Data and Docker Volumes
 
-## Phase 1 scope
+PostgreSQL data is stored in the named `codebase_pgdata` volume. Cloned repositories are stored temporarily in the named `codebase_workspace` volume and are removed after indexing completes.
 
-**In scope (delivered):**
+The database initialization script runs only when PostgreSQL creates a new data volume. Existing volumes do not automatically receive schema changes. Back up the database before migrations or volume operations.
 
-- React + Vite + TypeScript frontend with chat UI and ingest form
-- FastAPI backend with health, ingest, query, and repository endpoints
-- PostgreSQL + pgvector (vector(1536) column)
-- Docker / Docker Compose for one-command stack bring-up
-- File discovery (extension allowlist + size + excluded dirs)
-- Line-window chunking with overlap
-- OpenAI-compatible embedding + LLM clients with httpx + tenacity retries
-- Deterministic fallback for both embeddings and LLM (no API key required)
-- Cosine-distance semantic search via pgvector
-- Per-chunk citations (file path, line range, language, score)
-- CORS, structured JSON logging, Pydantic validation, error handling
-- 24 passing pytest tests
-- README with run / verify / configure instructions
+To intentionally remove all local database data and start over:
 
-**Out of scope (later phases):**
+```powershell
+docker compose down -v
+docker compose up --build -d
+```
 
-- GitHub ingestion (Phase 2)
-- Tree-sitter AST chunking (Phase 3)
-- Reranking (Cohere / cross-encoder) (Phase 3)
-- Conversation history, multi-hop questions, eval harness (Phase 4)
-- Auth, rate limiting, multi-tenant (Phase 5)
+This permanently deletes indexed repositories and vectors.
+
+## Deployment Notes
+
+For a remote deployment:
+
+1. Copy `.env.example` to `.env` on the server.
+2. Set production database credentials, `FRONTEND_URL`, and `VITE_API_BASE`.
+3. Configure `GITHUB_TOKEN` and model credentials as required.
+4. Remove or replace the Windows-specific `/mnt/codebase-ai` bind mount in `docker-compose.yml`.
+5. Run `docker compose up --build -d`.
+6. Put HTTPS and authentication in front of the services before exposing them publicly.
+
+The supplied Compose file is suitable for local development and small private deployments. Before public production use, add authentication, rate limiting, persistent background jobs, resource quotas, database backups, and a production process configuration without Uvicorn `--reload`.
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `docker compose up` fails with "Cannot connect to Docker daemon" | Start Docker Desktop. |
-| Backend health reports `"database":false` | The DB container isn't ready yet; wait ~10s and re-check. |
-| `npm install` fails with MSYS path errors on Windows | Set `MSYS_NO_PATHCONV=1` before the command. |
-| `curl` returns exit code 23 on Windows | Same — `MSYS_NO_PATHCONV=1 curl …`. |
-| Ingest returns 0 files | Check path is reachable from the backend container. Inside Docker, prefer `/app/workspace/...`. |
-| Want to use a real OpenAI key | Set `LLM_API_KEY` and `EMBEDDING_API_KEY` in `.env`, then `docker compose up -d backend`. |
-| Switching embedding model changes dimension | Update `EMBEDDING_DIMENSIONS` in `.env` and `vector(N)` in `backend/scripts/init_db.sql`, then recreate the database volume. |
+### Repository remains in `cloning`
+
+Check backend logs:
+
+```powershell
+docker compose logs --tail=200 backend
+```
+
+GitHub authentication failures are reported when a repository requires credentials. Set `GITHUB_TOKEN` in `.env` and rebuild the backend:
+
+```powershell
+docker compose up --build -d backend
+```
+
+Git prompts are disabled so an invalid or missing credential fails the job instead of blocking the worker.
+
+### Repository remains in `embedding`
+
+Look for provider errors such as `429 Too Many Requests`, invalid credentials, or network failures. Gemini requests are limited to four concurrent calls, but provider quota can still be exhausted. The repository card will show the resulting failure message.
+
+### Database reports unhealthy
+
+```powershell
+docker compose ps
+docker compose logs --tail=100 db
+```
+
+Wait for the database health check to pass, then retry `/api/health`.
+
+### Frontend cannot reach the backend
+
+For Docker on the same machine, use `VITE_API_BASE=http://localhost:8000`. For a remote deployment, use the public backend URL and rebuild the frontend because Vite embeds this value at build time.
+
+## License
+
+No license file is currently included in this repository.
