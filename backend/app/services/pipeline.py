@@ -104,6 +104,9 @@ def ingest_local_path(
     skipped = 0
     embed_failures = 0
     embedable_files = 0  # files that reached the embed step
+    # Buffer for bulk_save_objects — flushed per file so the SQL stays
+    # in one INSERT ... VALUES (...), (...) per file rather than per chunk.
+    chunk_rows: list[CodeChunk] = []
 
     for entry in discovered:
         try:
@@ -172,7 +175,7 @@ def ingest_local_path(
             continue
 
         for chunk, vec in zip(chunks, vectors):
-            session.add(
+            chunk_rows.append(
                 CodeChunk(
                     repository_id=repo.id,
                     file_id=file_row.id,
@@ -186,12 +189,32 @@ def ingest_local_path(
                 )
             )
 
+        # Flush the chunks for this file in one INSERT ... VALUES (...), (...)
+        # round-trip instead of one INSERT per chunk. On a 200-file repo
+        # with ~3 chunks/file that's ~600 round-trips collapsed to ~200.
+        # bulk_save_objects skips the unit-of-work identity-map machinery
+        # we don't need here (we never re-read these rows).
+        if chunk_rows:
+            session.bulk_save_objects(chunk_rows)
+            # flush so the FK + embedding writes actually hit the DB and
+            # any unique-constraint error surfaces here, not at commit.
+            session.flush()
+            chunk_rows.clear()
+
         file_row.chunk_count = len(chunks)
         total_chunks += len(chunks)
         # Update Phase 2 progress fields as we go so the frontend
         # can show a live counter while indexing is still in flight.
         repo.files_processed = repo.files_processed + 1
         repo.total_files = len(discovered)
+
+    # Flush any chunks left in the buffer (e.g. if the last file had
+    # chunks but the loop exited normally — already flushed per file,
+    # this is a defensive net).
+    if chunk_rows:
+        session.bulk_save_objects(chunk_rows)
+        session.flush()
+        chunk_rows.clear()
 
     # Systemic embedding check: if every file that had content also
     # failed at the embed step, the repository row would otherwise be

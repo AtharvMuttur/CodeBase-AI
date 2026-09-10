@@ -24,6 +24,8 @@ All backends return float32 numpy arrays of shape ``(n, dim)``.
 from __future__ import annotations
 
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable
 
 import httpx
@@ -39,6 +41,59 @@ class EmbeddingError(RuntimeError):
 
 def _settings():
     return get_settings()
+
+
+# ---------- shared HTTP client (connection pooling) ----------
+
+# A single httpx.Client per process reuses TCP+TLS connections across
+# calls. Without it, every embed request opens a fresh TLS handshake to
+# generativelanguage.googleapis.com — on a 200-file repo with ~3 chunks
+# per file that's 600 handshakes, which dominates wall time. The Client
+# is created lazily so unit tests can monkeypatch ``_post`` (and never
+# touch the real network) without paying for an unused pool.
+#
+# http2=True would let us multiplex many concurrent requests over a
+# single connection, but it pulls in the ``h2`` package — kept opt-in
+# for now. Flip to True once h2 is added to requirements.
+_client_lock = threading.Lock()
+_client: httpx.Client | None = None
+
+
+def _get_client() -> httpx.Client:
+    global _client
+    if _client is None:
+        with _client_lock:
+            if _client is None:
+                _client = httpx.Client(
+                    timeout=60.0,
+                    limits=httpx.Limits(
+                        max_keepalive_connections=20,
+                        max_connections=50,
+                    ),
+                )
+    return _client
+
+
+def _post(url: str, *, json: dict, headers: dict, timeout: float = 60.0) -> httpx.Response:
+    """Single POST entry point so tests can monkeypatch one symbol.
+
+    Production routes through the shared client to reuse connections;
+    tests replace ``embeddings._post`` directly with a fake.
+    """
+    return _get_client().post(url, json=json, headers=headers, timeout=timeout)
+
+
+def _reset_client_for_tests() -> None:
+    """Drop the cached client. Test-only helper so a monkeypatched
+    transport doesn't leak across test files."""
+    global _client
+    with _client_lock:
+        if _client is not None:
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = None
 
 
 def _local_dim() -> int:
@@ -121,7 +176,7 @@ def _embed_remote(texts: list[str]) -> np.ndarray:
         "input": texts,
     }
     try:
-        resp = httpx.post(url, headers=headers, json=payload, timeout=60.0)
+        resp = _post(url, headers=headers, json=payload, timeout=60.0)
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise EmbeddingError(f"embedding request failed: {exc}") from exc
@@ -189,7 +244,13 @@ def _embed_gemini_native(texts: list[str]) -> np.ndarray:
     }
 
     vectors: list[list[float]] = []
-    for text in texts:
+    # Gemini's :embedContent endpoint accepts one input per request, so
+    # we issue all requests concurrently. With a shared httpx.Client the
+    # underlying connections are reused, so this scales linearly with
+    # the slowest single request instead of with the sum of latencies.
+    # For a 600-chunk repo at ~300 ms/RTT this is the difference between
+    # 3 minutes (sequential) and ~5 seconds (16-way parallel).
+    def _fetch_one(text: str) -> list[float]:
         payload = {
             "model": f"models/{model}",
             "content": {
@@ -198,7 +259,7 @@ def _embed_gemini_native(texts: list[str]) -> np.ndarray:
             "outputDimensionality": out_dim,
         }
         try:
-            resp = httpx.post(url, headers=headers, json=payload, timeout=60.0)
+            resp = _post(url, headers=headers, json=payload, timeout=60.0)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
             raise EmbeddingError(
@@ -207,12 +268,20 @@ def _embed_gemini_native(texts: list[str]) -> np.ndarray:
 
         data = resp.json()
         try:
-            values = data["embedding"]["values"]
+            return list(data["embedding"]["values"])
         except (KeyError, TypeError) as exc:
             raise EmbeddingError(
                 f"gemini embedContent returned unexpected shape: {data!r}"
             ) from exc
-        vectors.append(list(values))
+
+    # Cap worker count at both the text count and a sensible ceiling so
+    # a single embed_texts(["q"]) call doesn't spin up a 16-thread pool
+    # for one request.
+    max_workers = min(16, max(1, len(texts)))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # map() preserves input order so the output rows line up with
+        # the input chunks — critical because pipeline.py zips them.
+        vectors = list(pool.map(_fetch_one, texts))
 
     arr = np.asarray(vectors, dtype=np.float32)
     if arr.ndim != 2 or arr.shape[0] != len(texts):

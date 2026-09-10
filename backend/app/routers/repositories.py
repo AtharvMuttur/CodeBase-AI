@@ -221,7 +221,11 @@ def create_repository(
         .order_by(Repository.created_at.desc())
         .first()
     )
-    if existing is not None and existing.status == "ready" and existing.commit_sha:
+    if (
+        existing is not None
+        and existing.status == "ready"
+        and existing.commit_sha
+    ):
         # Same repo, already indexed. Per spec, do not re-clone.
         return CreateRepositoryResponse(
             repository_id=existing.id,
@@ -235,7 +239,12 @@ def create_repository(
         )
 
     if existing is not None:
-        # Stale/failed/queued row — reset counters and re-queue.
+        # Reset stale / failed / queued rows so a re-submit re-indexes
+        # from scratch. We deliberately only enter this branch for rows
+        # that are not already in a usable "ready" state — the dedup
+        # check above catches the "already up to date" case so the UI
+        # never sees a `ready` card snap back to `queued` with zeroed
+        # counters on a duplicate POST.
         repo = existing
         repo.status = "queued"
         repo.branch = None

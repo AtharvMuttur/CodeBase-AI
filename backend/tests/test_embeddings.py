@@ -2,7 +2,7 @@
 
 The local backend tests run without any API keys and validate
 shape, determinism, and L2-normalization. The Gemini-native
-backend test monkeypatches ``httpx.post`` so it stays hermetic
+backend test monkeypatches ``embeddings._post`` so it stays hermetic
 and doesn't actually hit Google's API.
 """
 from __future__ import annotations
@@ -102,7 +102,7 @@ def test_gemini_native_returns_normalized_vectors(monkeypatch: pytest.MonkeyPatc
 
         return Response()
 
-    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    monkeypatch.setattr(embeddings, "_post", fake_post)
 
     out = _embed_gemini_native(["alpha", "beta"])
 
@@ -141,6 +141,6 @@ def test_gemini_native_surfaces_unexpected_shape(monkeypatch: pytest.MonkeyPatch
 
         return Response()
 
-    monkeypatch.setattr(embeddings.httpx, "post", fake_post)
+    monkeypatch.setattr(embeddings, "_post", fake_post)
     with pytest.raises(embeddings.EmbeddingError):
         _embed_gemini_native(["alpha"])
