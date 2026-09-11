@@ -191,10 +191,14 @@ export const api = {
   deleteRepository: (id: number) =>
     request<void>(`/repositories/${id}`, { method: "DELETE" }),
 
-  createRepositoryFromGithub: (url: string, signal?: AbortSignal) =>
+  createRepositoryFromGithub: (
+    url: string,
+    githubToken?: string,
+    signal?: AbortSignal,
+  ) =>
     request<CreateRepositoryResponse>("/repositories", {
       method: "POST",
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, ...(githubToken ? { github_token: githubToken } : {}) }),
       signal,
     }),
 

@@ -41,6 +41,7 @@ export function Sidebar({
 
   // --- GitHub form state ---
   const [githubUrl, setGithubUrl] = useState("");
+  const [githubToken, setGithubToken] = useState("");
   const [githubBusy, setGithubBusy] = useState(false);
   const [githubCollapsed, setGithubCollapsed] = useState(false);
 
@@ -141,9 +142,10 @@ export function Sidebar({
     setGithubBusy(true);
     try {
       const result: CreateRepositoryResponse =
-        await api.createRepositoryFromGithub(url);
+        await api.createRepositoryFromGithub(url, githubToken.trim() || undefined);
       push("success", result.message || `Queued ${result.name}.`);
       setGithubUrl("");
+      setGithubToken("");
       await loadRepos();
       mergeRepo({
         id: result.repository_id,
@@ -224,6 +226,17 @@ export function Sidebar({
               onChange={(e) => setGithubUrl(e.target.value)}
               placeholder="https://github.com/owner/repo"
               disabled={githubBusy}
+              spellCheck={false}
+            />
+            <label htmlFor="github-token">GitHub token <span>(optional)</span></label>
+            <input
+              id="github-token"
+              type="password"
+              value={githubToken}
+              onChange={(e) => setGithubToken(e.target.value)}
+              placeholder="Required for private repositories"
+              disabled={githubBusy}
+              autoComplete="off"
               spellCheck={false}
             />
             <button type="submit" disabled={githubBusy || !githubUrl.trim()}>
@@ -402,8 +415,14 @@ function RepoCard({
           </div>
         )}
         {!isTerminal && (
-          <div className="progress" aria-label={`indexing ${pct}%`}>
-            <div className="progress__bar" style={{ width: `${pct}%` }} />
+          <div
+            className={`progress ${liveTotal === 0 ? "progress--indeterminate" : ""}`}
+            aria-label={liveTotal > 0 ? `indexing ${pct}%` : `${liveStatus} in progress`}
+          >
+            <div
+              className={`progress__bar ${liveTotal === 0 ? "progress__bar--indeterminate" : ""}`}
+              style={{ width: `${pct}%` }}
+            />
             <span className="progress__text">
               {liveTotal > 0
                 ? `${liveFiles} / ${liveTotal} files`

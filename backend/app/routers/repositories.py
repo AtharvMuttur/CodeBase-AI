@@ -78,7 +78,11 @@ def _to_detail(repo: Repository) -> RepositoryDetail:
     )
 
 
-def _spawn_indexer(repository_id: int, url: str) -> None:
+def _spawn_indexer(
+    repository_id: int,
+    url: str,
+    github_token: str | None = None,
+) -> None:
     """Run the indexer in a daemon thread.
 
     The indexer manages its own DB sessions and never raises — it
@@ -88,7 +92,7 @@ def _spawn_indexer(repository_id: int, url: str) -> None:
     """
     thread = threading.Thread(
         target=index_github_repository,
-        args=(repository_id, url),
+        args=(repository_id, url, github_token),
         name=f"github-indexer-{repository_id}",
         daemon=True,
     )
@@ -281,7 +285,7 @@ def create_repository(
     # rather than FastAPI BackgroundTasks because the latter only
     # runs after the response is sent AND its exception semantics
     # are awkward to debug. The thread captures its own errors.
-    _spawn_indexer(repo.id, ref.clone_url)
+    _spawn_indexer(repo.id, ref.clone_url, payload.github_token)
 
     # We also add a no-op to the FastAPI BackgroundTasks so the
     # existing Phase 1+ test suite (which inspects OpenAPI) does

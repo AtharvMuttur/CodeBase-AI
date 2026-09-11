@@ -111,7 +111,13 @@ class CreateRepositoryRequest(BaseModel):
     response is returned as soon as the row is created.
     """
 
-    url: str = Field(..., min_length=1, description="Public GitHub repository URL")
+    url: str = Field(..., min_length=1, description="GitHub repository URL")
+    github_token: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+        description="Optional token for private GitHub repositories; never stored",
+    )
 
 
 class CreateRepositoryResponse(BaseModel):

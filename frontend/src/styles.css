@@ -686,6 +686,7 @@ button.ghost:hover:not(:disabled) {
   letter-spacing: 0.02em;
 }
 .status-pill.status-queued,
+.status-pill.status-checking_access,
 .status-pill.status-cloning,
 .status-pill.status-scanning,
 .status-pill.status-chunking,

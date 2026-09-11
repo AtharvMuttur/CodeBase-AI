@@ -15,6 +15,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +49,7 @@ def ingest_local_path(
     repository_id: int | None = None,
     source: str = "local",
     user_id: int | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> IngestionResult:
     """Index ``local_path`` into the database.
 
@@ -103,6 +105,7 @@ def ingest_local_path(
     session.flush()  # populate repo.id
 
     total_chunks = 0
+    processed_files = 0
     skipped = 0
     embed_failures = 0
     embedable_files = 0  # files that reached the embed step
@@ -110,18 +113,32 @@ def ingest_local_path(
     # in one INSERT ... VALUES (...), (...) per file rather than per chunk.
     chunk_rows: list[CodeChunk] = []
 
+    if progress_callback is None:
+        repo.total_files = len(discovered)
+    else:
+        session.commit()
+
+    def report_progress() -> None:
+        if progress_callback is not None:
+            session.commit()
+            progress_callback(processed_files, len(discovered))
+
     for entry in discovered:
+        processed_files += 1
         try:
             text_content = entry.absolute_path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             skipped += 1
+            report_progress()
             continue
         if not text_content.strip():
             # Skip empty files — they contribute no signal to retrieval.
+            report_progress()
             continue
 
         chunks = chunk_text(text_content)
         if not chunks:
+            report_progress()
             continue
 
         # Upsert the file row so re-ingestion of the same folder is idempotent.
@@ -177,6 +194,7 @@ def ingest_local_path(
             continue
 
         for chunk, vec in zip(chunks, vectors):
+            report_progress()
             chunk_rows.append(
                 CodeChunk(
                     repository_id=repo.id,
@@ -207,8 +225,10 @@ def ingest_local_path(
         total_chunks += len(chunks)
         # Update Phase 2 progress fields as we go so the frontend
         # can show a live counter while indexing is still in flight.
-        repo.files_processed = repo.files_processed + 1
-        repo.total_files = len(discovered)
+        if progress_callback is None:
+            repo.files_processed = repo.files_processed + 1
+            repo.total_files = len(discovered)
+        report_progress()
 
     # Flush any chunks left in the buffer (e.g. if the last file had
     # chunks but the loop exited normally — already flushed per file,

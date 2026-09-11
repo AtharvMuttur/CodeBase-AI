@@ -147,10 +147,11 @@ Existing pre-auth repositories have no owner and are intentionally not visible t
 1. Open the frontend.
 2. Expand **Clone from GitHub** if needed.
 3. Enter a repository URL such as `https://github.com/owner/repository`.
-4. Select **Clone & Index**.
-5. Wait for the repository card to reach `ready` or display a failure message.
-6. Select the repository and ask a question in the chat composer.
-7. Open individual citation headers when you want to inspect retrieved source code.
+4. For a private repository, enter a GitHub token in the optional token field. It is used only for this indexing request and is not stored.
+5. Select **Clone & Index**.
+6. Wait for the repository card to reach `ready` or display a failure message.
+7. Select the repository and ask a question in the chat composer.
+8. Open individual citation headers when you want to inspect retrieved source code.
 
 The frontend currently exposes GitHub ingestion. The backend also retains a local-folder ingestion endpoint for API and development use; it requires a path visible inside the backend container when Docker is used.
 

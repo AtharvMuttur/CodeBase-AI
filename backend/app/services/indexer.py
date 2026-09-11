@@ -104,7 +104,11 @@ def _update_status(
         session.close()
 
 
-def index_github_repository(repository_id: int, url: str) -> None:
+def index_github_repository(
+    repository_id: int,
+    url: str,
+    github_token: str | None = None,
+) -> None:
     """End-to-end indexer. Runs in a daemon thread.
 
     Safe to call multiple times for the same ``repository_id`` — the
@@ -116,7 +120,7 @@ def index_github_repository(repository_id: int, url: str) -> None:
     """
     started = time.perf_counter()
     settings = get_settings()
-    token = settings.github_token or None
+    token = github_token or settings.github_token or None
 
     # Reset counters up front so the frontend immediately sees the
     # row in "queued" state with progress zeroed.
@@ -129,7 +133,14 @@ def index_github_repository(repository_id: int, url: str) -> None:
         chunk_count=0,
         clear_error=True,
     )
-    logger.info("indexer_start", extra={"repository_id": repository_id, "url": url})
+    logger.info(
+        "indexer_start",
+        extra={
+            "repository_id": repository_id,
+            "url": url,
+            "github_token_supplied": bool(token),
+        },
+    )
 
     temp_path: Path | None = None
     try:
@@ -143,7 +154,7 @@ def index_github_repository(repository_id: int, url: str) -> None:
             return
 
         # 2) Discover the default branch.
-        _update_status(repository_id, status="cloning")
+        _update_status(repository_id, status="checking_access")
         try:
             branch = default_branch(ref, token=token)
         except GithubURLError as exc:
@@ -153,6 +164,7 @@ def index_github_repository(repository_id: int, url: str) -> None:
             return
 
         # 3) Clone.
+        _update_status(repository_id, status="cloning")
         try:
             temp_path, commit_sha = clone_to_temp(ref, branch=branch, token=token)
         except GithubURLError as exc:
@@ -194,6 +206,12 @@ def index_github_repository(repository_id: int, url: str) -> None:
                     local_path=str(temp_path),
                     repository_id=repository_id,
                     source="github",
+                    progress_callback=lambda processed, total: _update_status(
+                        repository_id,
+                        status="embedding",
+                        files_processed=processed,
+                        total_files=total,
+                    ),
                 )
             except IngestionError as exc:
                 _update_status(
